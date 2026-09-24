@@ -1,0 +1,287 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Zill — Find affiliate revenue you're losing</title>
+  <style>
+    :root {
+      --bg: #f3efe6;
+      --ink: #1c1915;
+      --muted: #5e584e;
+      --line: #ddd4c4;
+      --card: #fffdf8;
+      --bad: #8d2b24;
+      --bad-bg: #f6e6e1;
+      --ok: #1d6b43;
+      --ok-bg: #e4f2e9;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font: 16px/1.5 ui-sans-serif, system-ui, sans-serif;
+    }
+    main { max-width: 760px; margin: 0 auto; padding: 40px 20px 80px; }
+    h1, h2, .hero-count { font-family: "Iowan Old Style", Palatino, Georgia, serif; font-weight: 500; }
+    .mark { letter-spacing: 0.08em; text-transform: uppercase; font-size: 13px; margin: 0 0 18px; }
+    h1 { font-size: clamp(36px, 6vw, 56px); line-height: 1.05; margin: 0 0 12px; }
+    .lede { color: var(--muted); font-size: 18px; margin: 0 0 28px; }
+    form, .sample-row { display: grid; gap: 12px; }
+    label { font-size: 14px; }
+    input[type="url"], input[type="number"] {
+      width: 100%;
+      border: 1px solid var(--line);
+      background: var(--card);
+      color: var(--ink);
+      border-radius: 10px;
+      padding: 12px 14px;
+      font: inherit;
+    }
+    .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+    .row input[type="number"] { width: 88px; }
+    button, .filters button {
+      border: 0;
+      border-radius: 999px;
+      padding: 12px 18px;
+      font: inherit;
+      cursor: pointer;
+      background: var(--ink);
+      color: #f7f3ea;
+    }
+    button.secondary, .filters button { background: transparent; color: var(--ink); border: 1px solid var(--line); }
+    .filters button[aria-pressed="true"] { background: var(--ink); color: #f7f3ea; }
+    button:disabled { opacity: 0.55; cursor: progress; }
+    :focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
+    #status { min-height: 1.5em; color: var(--muted); margin: 18px 0; }
+    .banner, .card, .statline { background: var(--card); border: 1px solid var(--line); border-radius: 14px; }
+    .banner { padding: 12px 14px; margin-bottom: 16px; color: var(--muted); }
+    .hero-count { font-size: 72px; line-height: 0.9; margin: 8px 0; }
+    .caveat, .meta, .action { color: var(--muted); }
+    .wrap { overflow-wrap: anywhere; }
+    .filters { display: flex; flex-wrap: wrap; gap: 8px; margin: 18px 0; }
+    .card { padding: 16px 18px; margin-bottom: 10px; }
+    .tags { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+    .tag { background: var(--bad-bg); color: var(--bad); border-radius: 999px; padding: 2px 8px; font-size: 12px; }
+    .tag.ok { background: var(--ok-bg); color: var(--ok); }
+    h2 { font-size: 22px; margin: 0 0 8px; }
+    .action { margin: 8px 0 0; }
+    details { margin-top: 18px; }
+    a { color: inherit; }
+  </style>
+</head>
+<body>
+  <main>
+    <p class="mark">Zill</p>
+    <h1>Find affiliate revenue you're losing</h1>
+    <p class="lede">Crawl a site, find its affiliate links, and see which ones are broken, out of stock, redirected off the product, or no longer tracking.</p>
+    <form id="audit-form">
+      <label for="site-url">Website</label>
+      <input id="site-url" name="url" type="url" required placeholder="https://your-site.com" autocomplete="url">
+      <div class="row">
+        <label for="max-pages">Pages</label>
+        <input id="max-pages" name="max_pages" type="number" min="1" max="40" value="25">
+        <label><input id="respect-robots" type="checkbox" checked> Respect robots.txt</label>
+      </div>
+      <div class="row">
+        <button type="submit">Audit site</button>
+      </div>
+    </form>
+    <p class="sample-row"><button type="button" class="secondary" id="sample-button">Run the sample audit</button></p>
+    <p id="status" aria-live="polite"></p>
+    <div id="report"></div>
+  </main>
+  <script>
+    const form = document.querySelector("#audit-form");
+    const sampleButton = document.querySelector("#sample-button");
+    const statusEl = document.querySelector("#status");
+    const reportEl = document.querySelector("#report");
+    const submitButton = form.querySelector("button");
+    let busy = false;
+
+    function setBusy(next) {
+      busy = next;
+      submitButton.disabled = next;
+      sampleButton.disabled = next;
+    }
+
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const url = document.querySelector("#site-url").value.trim();
+      start({
+        url,
+        max_pages: Number(document.querySelector("#max-pages").value || 25),
+        respect_robots: document.querySelector("#respect-robots").checked,
+      });
+    });
+    sampleButton.addEventListener("click", () => start({ sample: true, max_pages: 10 }));
+
+    async function start(body) {
+      if (busy) return;
+      setBusy(true);
+      reportEl.replaceChildren();
+      statusEl.textContent = "Starting the audit…";
+      const started = Date.now();
+      try {
+        const res = await fetch("/api/audits", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        const payload = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          statusEl.textContent = payload.detail || "Couldn't start the audit.";
+          setBusy(false);
+          return;
+        }
+        await poll(payload.id, started);
+      } catch (err) {
+        statusEl.textContent = "Couldn't reach Zill.";
+        setBusy(false);
+      }
+    }
+
+    async function poll(id, started) {
+      if (Date.now() - started > 180000) {
+        statusEl.textContent = "This audit is taking too long. Try fewer pages.";
+        setBusy(false);
+        return;
+      }
+      const res = await fetch("/api/audits/" + id);
+      const data = await res.json();
+      if (data.status === "running" || data.status === "queued") {
+        statusEl.textContent = data.progress || "Working…";
+        setTimeout(() => poll(id, started), 700);
+        return;
+      }
+      setBusy(false);
+      if (data.status === "error") {
+        statusEl.textContent = data.error || "The audit failed.";
+        return;
+      }
+      statusEl.textContent = "";
+      render(data.report);
+    }
+
+    function el(tag, text, className) {
+      const node = document.createElement(tag);
+      if (className) node.className = className;
+      if (text != null) node.textContent = text;
+      return node;
+    }
+
+    function render(report) {
+      reportEl.replaceChildren();
+      if (!report) return;
+      if (report.sample) {
+        reportEl.append(el("p", "Sample publisher with planted link problems, so you can see the report before crawling a real site.", "banner"));
+      }
+      if (report.crawl_error) {
+        const banner = el("p", report.crawl_error, "banner");
+        reportEl.append(banner);
+        return;
+      }
+      const kicker = el("p", report.site_title || report.site, "mark");
+      const count = el("p", String(report.problem_count), "hero-count");
+      count.dataset.problemCount = String(report.problem_count);
+      const line = el("p", report.problem_count === 1
+        ? "affiliate link looks like it's failing to earn"
+        : "affiliate links look like they're failing to earn");
+      const caveat = el("p", report.caveat, "caveat");
+      const stats = el(
+        "p",
+        "Crawled " + report.pages_crawled + " pages. Found " + report.affiliate_links_found + " affiliate links. " + report.healthy_count + " still look healthy.",
+        "meta"
+      );
+      reportEl.append(kicker, count, line, caveat, stats);
+      if (report.truncated) {
+        reportEl.append(el("p", "Checked the first " + report.links_checked + " affiliate links.", "meta"));
+      }
+
+      const filters = document.createElement("div");
+      filters.className = "filters";
+      const modes = [{ id: "problem", label: "Problems " + report.problem_count }];
+      Object.entries(report.issue_counts).forEach(([code, n]) => {
+        const sample = report.findings.flatMap((f) => f.issues).find((issue) => issue.code === code);
+        modes.push({ id: code, label: (sample ? sample.title : code) + " " + n });
+      });
+      if (report.healthy_count) modes.push({ id: "healthy", label: "Healthy " + report.healthy_count });
+      if (report.unverified_count) modes.push({ id: "unverified", label: "Couldn't verify " + report.unverified_count });
+      let active = "problem";
+      const list = document.createElement("div");
+
+      function paint() {
+        list.replaceChildren();
+        const visible = report.findings.filter((finding) => {
+          if (active === "problem" || active === "healthy" || active === "unverified") return finding.bucket === active;
+          return finding.issues.some((issue) => issue.code === active);
+        });
+        if (!visible.length) {
+          list.append(el("p", report.affiliate_links_found
+            ? "Nothing in this view."
+            : "No affiliate links found. Zill looks for network links, Amazon associate URLs, sponsored links, and /go/ redirects.", "meta"));
+          return;
+        }
+        visible.forEach((finding) => list.append(card(finding)));
+      }
+
+      modes.forEach((mode, index) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = mode.label;
+        button.setAttribute("aria-pressed", index === 0 ? "true" : "false");
+        button.addEventListener("click", () => {
+          active = mode.id;
+          filters.querySelectorAll("button").forEach((node) => node.setAttribute("aria-pressed", "false"));
+          button.setAttribute("aria-pressed", "true");
+          paint();
+        });
+        filters.append(button);
+      });
+      reportEl.append(filters, list);
+      paint();
+
+      if (report.pages.length) {
+        const details = document.createElement("details");
+        details.append(el("summary", "Pages crawled"));
+        report.pages.forEach((page) => details.append(el("div", page, "meta wrap")));
+        reportEl.append(details);
+      }
+    }
+
+    function card(finding) {
+      const node = document.createElement("article");
+      node.className = "card";
+      const tags = document.createElement("div");
+      tags.className = "tags";
+      if (!finding.issues.length) tags.append(el("span", "Healthy", "tag ok"));
+      finding.issues.forEach((issue) => {
+        const tag = el("span", issue.title, "tag");
+        tag.dataset.issue = issue.code;
+        tags.append(tag);
+      });
+      node.append(tags);
+      node.append(el("h2", finding.anchor || finding.url));
+      node.append(el("div", finding.url, "meta wrap"));
+      if (finding.final_url && finding.final_url !== finding.url) {
+        node.append(el("div", "Lands on " + finding.final_url, "meta wrap"));
+      }
+      finding.issues.forEach((issue) => {
+        node.append(el("p", issue.summary));
+        node.append(el("p", issue.action, "action"));
+      });
+      const sources = finding.sources.map((source) => {
+        try {
+          const site = new URL(finding.sources[0]);
+          const url = new URL(source);
+          if (url.host === site.host) return url.pathname;
+        } catch (err) {}
+        return source;
+      });
+      node.append(el("p", "Found on " + sources.join(", "), "meta wrap"));
+      return node;
+    }
+  </script>
+</body>
+</html>
