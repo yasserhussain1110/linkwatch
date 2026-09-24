@@ -92,9 +92,11 @@ AFFILIATE_QUERY_KEYS = {
     "affid",
 }
 ASSOCIATE_KEYS = {"tag", "ascsubtag", "linkcode", "linkid"}
-REDIRECT_PREFIXES = ("/go/", "/recommends/", "/recommend/", "/out/", "/visit/", "/link/")
+REDIRECT_SEGMENTS = {"go", "recommends", "recommend", "out", "visit", "link"}
 ASIN_RE = re.compile(r"/(?:dp|gp/product)/([A-Z0-9]{10})(?:[/?]|$)", re.I)
 KIND_RANK = {"amazon": 5, "network": 4, "tagged": 3, "redirector": 2, "sponsored": 1}
+MAX_CRAWL_PER_PAGE = 1000
+MAX_AFFILIATE_PER_PAGE = 1000
 
 
 @dataclass(frozen=True)
@@ -157,8 +159,8 @@ def same_site(page_url: str, url: str) -> bool:
 
 
 def is_redirect_prefix(url: str) -> bool:
-    path = urlsplit(url).path or ""
-    return any(path.startswith(prefix) for prefix in REDIRECT_PREFIXES)
+    segments = [segment for segment in (urlsplit(url).path or "").split("/") if segment]
+    return any(segment.lower() in REDIRECT_SEGMENTS for segment in segments[:-1])
 
 
 def classify_kind(page_url: str, url: str, rel: str) -> str | None:
@@ -199,9 +201,9 @@ def extract_page_links(page_url: str, html: str, start_url: str) -> PageLinks:
             anchor = " ".join(tag.get_text(" ", strip=True).split())[:160]
             affiliate.append(FoundLink(url=cleaned, source_page=canonical(page_url), anchor=anchor, kind=kind))
             continue
-        if in_scope(start_url, cleaned) and crawlable_path(cleaned) and len(crawl) < 100:
+        if in_scope(start_url, cleaned) and crawlable_path(cleaned) and len(crawl) < MAX_CRAWL_PER_PAGE:
             crawl.append(cleaned)
-        if len(affiliate) >= 100:
+        if len(affiliate) >= MAX_AFFILIATE_PER_PAGE:
             break
     return PageLinks(affiliate=affiliate, crawl=crawl)
 

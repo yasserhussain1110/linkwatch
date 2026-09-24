@@ -47,6 +47,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("url", nargs="?", help="Site to crawl")
     parser.add_argument("--sample", action="store_true", help="Audit the built-in sample publisher")
     parser.add_argument("--max-pages", type=int, default=25)
+    parser.add_argument("--max-links", type=int, default=None, help="Check only the first N links (default: all)")
     parser.add_argument("--ignore-robots", action="store_true")
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--all", action="store_true", help="Include healthy links in the text report")
@@ -59,6 +60,7 @@ def main(argv: list[str] | None = None) -> None:
             args.url or "",
             sample=args.sample,
             max_pages=args.max_pages,
+            max_links=args.max_links,
             respect_robots=not args.ignore_robots,
             on_progress=lambda message: print(message, file=sys.stderr),
         )

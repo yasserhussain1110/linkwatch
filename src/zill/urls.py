@@ -44,9 +44,9 @@ def canonical(url: str) -> str:
     port = parts.port
     if port and not ((scheme == "https" and port == 443) or (scheme == "http" and port == 80)):
         netloc = f"{netloc}:{port}"
+    # A trailing slash is load-bearing on some affiliate endpoints: Impact's
+    # /p/ tracker returns 404 for /p. Never normalize it away.
     path = parts.path or "/"
-    if path != "/" and path.endswith("/"):
-        path = path[:-1]
     return urlunsplit((scheme, netloc, path, parts.query, ""))
 
 

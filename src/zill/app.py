@@ -22,7 +22,8 @@ TEMPLATE = Path(__file__).parent / "templates" / "index.html"
 class AuditIn(BaseModel):
     url: str | None = None
     sample: bool = False
-    max_pages: int = Field(default=25, ge=1, le=40)
+    max_pages: int = Field(default=25, ge=1, le=500)
+    max_links: int | None = Field(default=None, ge=1, le=20000)
     respect_robots: bool = True
 
 
@@ -77,10 +78,11 @@ async def _run(job_id: str, url: str, body: AuditIn) -> None:
                 url,
                 sample=body.sample,
                 max_pages=body.max_pages,
+                max_links=body.max_links,
                 respect_robots=body.respect_robots,
                 on_progress=progress,
             ),
-            timeout=150,
+            timeout=7200,
         )
     except ValueError as exc:
         job["status"] = "error"
@@ -88,7 +90,7 @@ async def _run(job_id: str, url: str, body: AuditIn) -> None:
         return
     except TimeoutError:
         job["status"] = "error"
-        job["error"] = "The audit timed out. Try fewer pages."
+        job["error"] = "The audit ran past two hours and stopped. Try fewer pages."
         return
     except Exception:
         logger.exception("audit failed")

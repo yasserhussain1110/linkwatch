@@ -1,5 +1,6 @@
 import asyncio
 
+import httpx
 from fastapi.testclient import TestClient
 
 from zill.app import app
@@ -52,6 +53,37 @@ def test_sample_audit_finds_revenue_leaks():
     assert "twitter.com" not in requested
     assert "w3.org" not in requested
     assert "https://www.amazon.com/" not in net.requested
+
+
+def test_timeout_is_unverified_not_a_problem():
+    from zill.audit import bucket_for
+
+    assert bucket_for(["timeout"]) == "unverified"
+    assert bucket_for(["blocked"]) == "unverified"
+    assert bucket_for(["broken"]) == "problem"
+    assert bucket_for([]) == "healthy"
+
+
+def test_timeouts_are_retried_before_being_reported():
+    from zill.fetch import HttpxFetcher
+
+    class Flaky:
+        def __init__(self):
+            self.calls = 0
+
+        async def get(self, url, **kwargs):
+            self.calls += 1
+            if self.calls == 1:
+                raise httpx.ReadTimeout("slow")
+            return httpx.Response(200, text="<html>ok</html>", request=httpx.Request("GET", url))
+
+    flaky = Flaky()
+    fetcher = HttpxFetcher(client=flaky)
+    fetcher._host_safety["shop.example"] = ("ok", None)
+    result = asyncio.run(fetcher.get("https://shop.example/p"))
+    assert flaky.calls == 2
+    assert result.error is None
+    assert result.status_code == 200
 
 
 def test_bot_wall_explains_why_the_crawl_stopped():

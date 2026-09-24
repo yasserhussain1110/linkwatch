@@ -20,6 +20,19 @@ CLASS_OUT_OF_STOCK = re.compile(
     r"""(?:class|id)=["'][^"']*(?:out-of-stock|outofstock|availability--out)""",
     re.I,
 )
+BOT_WALL = re.compile(
+    r"(enter the characters you see below|type the characters you see|"
+    r"we just need to make sure you're not a robot|please enable js|enable javascript and cookies|"
+    r"unusual traffic from your|verify you are a human|checking your browser before|"
+    r"click the button below to continue shopping|validatecaptcha|"
+    r"to discuss automated access to amazon data)",
+    re.I,
+)
+
+
+def is_bot_wall(html: str) -> bool:
+    """A merchant answering 200 with a challenge page tells us nothing about the product."""
+    return bool(BOT_WALL.search(html or ""))
 
 
 def page_title(html: str) -> str:
@@ -154,6 +167,15 @@ def diagnose(url: str, fetch: FetchResult) -> list[IssueHit]:
         return _dedupe(issues)
     if status != 200:
         issues.append(hit("soft_not_found", f"The link returned HTTP {status} without a product page."))
+        return _dedupe(issues)
+
+    if is_bot_wall(fetch.text or ""):
+        issues.append(
+            hit(
+                "blocked",
+                "The merchant answered with a bot challenge instead of the product page, so the offer couldn't be confirmed.",
+            )
+        )
         return _dedupe(issues)
 
     if is_network_host(url) and is_network_host(final):

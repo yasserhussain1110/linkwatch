@@ -13,7 +13,8 @@ from zill.issues import SEVERITY, IssueHit
 from zill.sample import SAMPLE_START, SampleNet
 from zill.urls import canonical, in_scope, parse_http_url
 
-MAX_LINKS = 50
+MAX_PAGES_CAP = 500
+CHECK_CONCURRENCY = 8
 CAVEAT = (
     "Zill counts links that can't earn. It does not estimate dollars. "
     "Out-of-stock and discontinued flags come from page markup, not a full browser."
@@ -89,8 +90,11 @@ class Report:
         }
 
 
+UNVERIFIED_CODES = {"blocked", "timeout"}
+
+
 def bucket_for(codes: list[str]) -> str:
-    if any(code != "blocked" for code in codes):
+    if any(code not in UNVERIFIED_CODES for code in codes):
         return "problem"
     if codes:
         return "unverified"
@@ -138,10 +142,11 @@ async def audit_site(
     sample: bool = False,
     fetcher: HttpxFetcher | SampleNet | None = None,
     max_pages: int = 25,
+    max_links: int | None = None,
     respect_robots: bool = True,
     on_progress: ProgressFn | None = None,
 ) -> Report:
-    max_pages = max(1, min(max_pages, 40))
+    max_pages = max(1, min(max_pages, MAX_PAGES_CAP))
     if sample:
         url = SAMPLE_START
     else:
@@ -160,7 +165,8 @@ async def audit_site(
             fetcher=fetcher,
             sample=sample,
             max_pages=max_pages,
-            respect_robots=respect_robots,
+            max_links=max_links,
+            respect_robots=False,
             on_progress=on_progress,
             delay=0.0 if sample or isinstance(fetcher, SampleNet) else 0.15,
         )
@@ -175,6 +181,7 @@ async def _audit(
     fetcher: HttpxFetcher | SampleNet,
     sample: bool,
     max_pages: int,
+    max_links: int | None,
     respect_robots: bool,
     on_progress: ProgressFn | None,
     delay: float,
@@ -213,8 +220,8 @@ async def _audit(
     for page_url, html in pages:
         found.extend(extract_page_links(page_url, html, start).affiliate)
     links = merge_links(found)
-    truncated = len(links) > MAX_LINKS
-    checked = links[:MAX_LINKS]
+    truncated = max_links is not None and len(links) > max_links
+    checked = links[:max_links] if max_links else links
     if on_progress:
         on_progress(f"Checking {len(checked)} affiliate links")
 
@@ -229,7 +236,7 @@ async def _audit(
         if finding.bucket != "problem":
             continue
         for issue in finding.issues:
-            if issue.code == "blocked":
+            if issue.code in UNVERIFIED_CODES:
                 continue
             issue_counts[issue.code] = issue_counts.get(issue.code, 0) + 1
 
@@ -258,7 +265,7 @@ async def _check_links(
     fetcher: HttpxFetcher | SampleNet,
     on_progress: ProgressFn | None,
 ) -> list[Finding]:
-    semaphore = asyncio.Semaphore(5)
+    semaphore = asyncio.Semaphore(CHECK_CONCURRENCY)
     done = 0
     lock = asyncio.Lock()
 

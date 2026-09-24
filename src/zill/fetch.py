@@ -17,6 +17,8 @@ UA_TOKEN = "ZillAffiliateAudit"
 Resolver = Callable[..., list]
 
 BLOCKED_HOSTS = {"localhost", "metadata.google.internal"}
+MAX_HOPS = 12
+RETRY_PAUSES = (2.0, 4.0)
 
 
 @dataclass
@@ -90,7 +92,7 @@ class HttpxFetcher:
     async def __aenter__(self) -> HttpxFetcher:
         if self._client is None:
             self._client = httpx.AsyncClient(
-                timeout=httpx.Timeout(8.0, connect=5.0),
+                timeout=httpx.Timeout(15.0, connect=8.0),
                 follow_redirects=False,
                 headers={"User-Agent": UA, "Accept": "text/html,application/xhtml+xml"},
             )
@@ -119,7 +121,7 @@ class HttpxFetcher:
 
         visited: list[str] = []
         current = url
-        for _ in range(8):
+        for _ in range(MAX_HOPS):
             safety, _reason = await self._safety(current)
             if safety == "dns":
                 return FetchResult(requested_url=url, final_url=None, redirect_chain=visited, error="dns")
@@ -143,7 +145,9 @@ class HttpxFetcher:
                 current = canonical(urljoin(current, location.strip()))
                 continue
 
-            raw = response.content[:500_000]
+            # Availability markup often sits late in the document; Costco's page
+            # alone is ~500KB, so a tight cap silently hides the offer.
+            raw = response.content[:2_000_000]
             encoding = response.encoding or "utf-8"
             text = raw.decode(encoding, errors="replace")
             return FetchResult(
@@ -158,7 +162,15 @@ class HttpxFetcher:
         return FetchResult(requested_url=url, redirect_chain=visited, error="too_many_redirects")
 
     async def get(self, url: str) -> FetchResult:
-        return await self._request(canonical(url))
+        """Retry timeouts before reporting them: affiliate chains are several slow hops."""
+        target = canonical(url)
+        result = await self._request(target)
+        for pause in RETRY_PAUSES:
+            if result.error != "timeout":
+                break
+            await asyncio.sleep(pause)
+            result = await self._request(target)
+        return result
 
     async def allowed(self, url: str) -> bool:
         parts = urlsplit(canonical(url))

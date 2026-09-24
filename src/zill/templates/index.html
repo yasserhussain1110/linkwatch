@@ -81,7 +81,7 @@
       <input id="site-url" name="url" type="url" required placeholder="https://your-site.com" autocomplete="url">
       <div class="row">
         <label for="max-pages">Pages</label>
-        <input id="max-pages" name="max_pages" type="number" min="1" max="40" value="25">
+        <input id="max-pages" name="max_pages" type="number" min="1" max="500" value="25">
         <label><input id="respect-robots" type="checkbox" checked> Respect robots.txt</label>
       </div>
       <div class="row">
@@ -143,7 +143,7 @@
     }
 
     async function poll(id, started) {
-      if (Date.now() - started > 180000) {
+      if (Date.now() - started > 7500000) {
         statusEl.textContent = "This audit is taking too long. Try fewer pages.";
         setBusy(false);
         return;

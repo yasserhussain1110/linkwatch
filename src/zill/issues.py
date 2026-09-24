@@ -23,8 +23,8 @@ ISSUES: dict[str, IssueInfo] = {
     ),
     "timeout": IssueInfo(
         "timeout",
-        "Timed out",
-        "The destination didn't respond. Check it in a browser before you replace it.",
+        "Needs verification",
+        "Open it in a browser. Affiliate chains are slow, so this may still work.",
     ),
     "server_error": IssueInfo(
         "server_error",
@@ -78,8 +78,8 @@ ISSUES: dict[str, IssueInfo] = {
     ),
     "blocked": IssueInfo(
         "blocked",
-        "Couldn't verify",
-        "Open the link in a browser. The site blocked an automated check.",
+        "Blocked by the site",
+        "Open the link in a browser. The merchant blocked an automated check.",
     ),
 }
 

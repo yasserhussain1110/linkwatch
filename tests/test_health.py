@@ -52,6 +52,11 @@ def test_blocked_is_not_a_broken_link():
     assert codes("https://shop.example/p", status_code=403, text="nope") == {"blocked"}
 
 
+def test_bot_challenge_answered_with_200_is_not_healthy():
+    wall = "<html><title>Amazon.com</title><p>Enter the characters you see below</p></html>"
+    assert codes("https://www.amazon.com/dp/B00X5ILD0K?tag=x-20", status_code=200, text=wall) == {"blocked"}
+
+
 def test_region_phrase():
     html = "<html><title>Pan</title><p>This product is not available in your country.</p></html>"
     assert codes("https://www.amazon.com/dp/B0REGION01?tag=fieldnote-20", status_code=200, text=html) == {"region_unavailable"}
