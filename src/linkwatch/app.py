@@ -11,7 +11,8 @@ from pydantic import BaseModel, Field
 
 from linkwatch.audit import audit_site
 from linkwatch.fetch import assess
-from linkwatch.urls import parse_http_url
+from linkwatch.pdfreport import render_pdf
+from linkwatch.urls import hostname, parse_http_url
 
 logger = logging.getLogger(__name__)
 app = FastAPI(title="Linkwatch")
@@ -62,6 +63,24 @@ async def start_audit(body: AuditIn) -> dict[str, str]:
     RUNNING.add(task)
     task.add_done_callback(RUNNING.discard)
     return {"id": job_id}
+
+
+@app.post("/api/report.pdf")
+def export_pdf(report: dict) -> Response:
+    if not report.get("site") and not report.get("findings"):
+        raise HTTPException(status_code=400, detail="That is not an audit report.")
+    try:
+        payload = render_pdf(report)
+    except Exception:
+        logger.exception("pdf export failed")
+        raise HTTPException(status_code=500, detail="Couldn't build the PDF.")
+    host = hostname(str(report.get("site") or "")) or "report"
+    safe = "".join(char if char.isalnum() or char in ".-" else "-" for char in host)
+    return Response(
+        content=payload,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="linkwatch-{safe}.pdf"'},
+    )
 
 
 @app.get("/api/audits/{job_id}")

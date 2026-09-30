@@ -168,6 +168,7 @@
       if (report.sample) {
         reportEl.append(el("p", "Sample publisher with planted link problems, so you can see the report before crawling a real site.", "banner"));
       }
+      reportEl.append(exportButton(report));
       if (report.crawl_error) {
         const banner = el("p", report.crawl_error, "banner");
         reportEl.append(banner);
@@ -240,6 +241,47 @@
         details.append(el("summary", "Pages crawled"));
         report.pages.forEach((page) => details.append(el("div", page, "meta wrap")));
         reportEl.append(details);
+      }
+    }
+
+    function exportButton(report) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "secondary";
+      button.textContent = "Export PDF";
+      button.addEventListener("click", () => downloadPdf(report, button));
+      return button;
+    }
+
+    async function downloadPdf(report, button) {
+      const previous = button.textContent;
+      button.disabled = true;
+      button.textContent = "Preparing the PDF…";
+      try {
+        const res = await fetch("/api/report.pdf", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(report),
+        });
+        if (!res.ok) {
+          const payload = await res.json().catch(() => ({}));
+          statusEl.textContent = payload.detail || "Couldn't build the PDF.";
+          return;
+        }
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        let host = "report";
+        try { host = new URL(report.site).hostname.replace(/^www\./, ""); } catch (err) {}
+        link.download = "linkwatch-" + host + ".pdf";
+        link.click();
+        URL.revokeObjectURL(url);
+      } catch (err) {
+        statusEl.textContent = "Couldn't build the PDF.";
+      } finally {
+        button.disabled = false;
+        button.textContent = previous;
       }
     }
 
