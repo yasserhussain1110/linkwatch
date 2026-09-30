@@ -54,6 +54,19 @@ def test_tracking_and_destination_rules():
     assert "homepage_redirect" in codes(search, final_url=landed, status_code=200, text="<title>Search</title>", redirect_chain=[search, landed])
 
 
+def test_untagged_amazon_landing_page_is_flagged():
+    bare = "https://www.amazon.com/primebigdealdays?ref=CG_ac_rocket_230918"
+    assert codes(bare, status_code=200, text=INSTOCK) == {"missing_attribution"}
+
+    tagged = "https://www.amazon.com/primebigdealdays?tag=usa1000-20"
+    assert codes(tagged, status_code=200, text=INSTOCK) == set()
+
+    # A short link carries the tag on the far side of the redirect.
+    short = "https://amzn.to/46mI5cQ"
+    final = "https://www.amazon.com/primebigdealdays?tag=usa1000-20"
+    assert codes(short, final_url=final, status_code=200, text=INSTOCK, redirect_chain=[short, final]) == set()
+
+
 def test_blocked_is_not_a_broken_link():
     assert codes("https://shop.example/p", status_code=403, text="nope") == {"blocked"}
 
@@ -66,3 +79,13 @@ def test_bot_challenge_answered_with_200_is_not_healthy():
 def test_region_phrase():
     html = "<html><title>Pan</title><p>This product is not available in your country.</p></html>"
     assert codes("https://www.amazon.com/dp/B0REGION01?tag=fieldnote-20", status_code=200, text=html) == {"region_unavailable"}
+
+
+def test_region_copy_inside_a_script_is_not_a_region_block():
+    # Fiverr embeds its signup validation strings as JSON on every page.
+    html = (
+        '<html><title>Fiverr</title><script>window.cfg={'
+        '"location_not_allowed":"Currently, Fiverr is unavailable in your region."};'
+        "</script><p>Find top global talent</p></html>"
+    )
+    assert codes("https://www.fiverr.com/?utm_medium=cx_affiliate", status_code=200, text=html) == set()

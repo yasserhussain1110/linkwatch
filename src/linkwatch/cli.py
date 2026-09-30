@@ -5,7 +5,7 @@ import asyncio
 import json
 import sys
 
-from linkwatch.audit import DEFAULT_MAX_PAGES, AuditError, Report, audit_site
+from linkwatch.audit import AuditError, Report, audit_site
 
 
 def print_report(report: Report, *, show_healthy: bool) -> None:
@@ -48,12 +48,22 @@ def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Find affiliate links that are failing to earn.")
     parser.add_argument("url", nargs="?", help="Site to crawl")
     parser.add_argument("--sample", action="store_true", help="Audit the built-in sample publisher")
-    parser.add_argument("--max-pages", type=int, default=DEFAULT_MAX_PAGES)
+    parser.add_argument(
+        "--max-pages",
+        type=int,
+        default=None,
+        help="Stop after this many pages (default: crawl until the site runs out)",
+    )
     parser.add_argument("--max-links", type=int, default=None, help="Check only the first N links (default: all)")
     parser.add_argument(
         "--browser",
         action="store_true",
         help="Render pages in headless Chromium (slower, reads JavaScript-built pages)",
+    )
+    parser.add_argument(
+        "--no-sitemap",
+        action="store_true",
+        help="Don't seed the crawl from sitemap.xml (link-following only)",
     )
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--all", action="store_true", help="Include healthy links in the text report")
@@ -68,6 +78,7 @@ def main(argv: list[str] | None = None) -> None:
             max_pages=args.max_pages,
             max_links=args.max_links,
             use_browser=args.browser,
+            use_sitemap=not args.no_sitemap,
             on_progress=lambda message: print(message, file=sys.stderr),
         )
 

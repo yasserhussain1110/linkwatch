@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from urllib.parse import urlsplit
 
 from linkwatch.classify import AffiliateLink, merge_links, extract_page_links
 from linkwatch.fetch import FetchResult, HttpxFetcher
@@ -13,8 +15,6 @@ from linkwatch.issues import SEVERITY, IssueHit
 from linkwatch.sample import SAMPLE_START, SampleNet
 from linkwatch.urls import canonical, in_scope, parse_http_url
 
-DEFAULT_MAX_PAGES = 1000
-MAX_PAGES_CAP = 25000
 CHECK_CONCURRENCY = 8
 # Measured on nytimes.com/wirecutter: 5 parallel requests were blocked 96% of
 # the time and starved the frontier, while one request per second was blocked
@@ -22,6 +22,12 @@ CHECK_CONCURRENCY = 8
 CRAWL_CONCURRENCY = 1
 CRAWL_DELAY = 1.0
 PAGE_RETRIES = 2
+# Page builders routinely publish pages that nothing links to: usa1000.net puts
+# every money page in the sitemap while its nav only loops through category
+# pages. Following links alone never reaches them.
+SITEMAP_LOC = re.compile(r"<loc>\s*([^<\s]+)\s*</loc>", re.I)
+SITEMAP_INDEX_DEPTH = 2
+MAX_SITEMAP_URLS = 50000
 CAVEAT = (
     "Linkwatch counts links that can't earn. It does not estimate dollars. "
     "Out-of-stock and discontinued flags come from page markup, not a full browser."
@@ -151,6 +157,10 @@ def _worth_retrying(result: FetchResult) -> bool:
     return result.status_code in {403, 429, 503} or _bot_wall(result.text)
 
 
+def _within_page_budget(crawled: int, max_pages: int | None) -> bool:
+    return max_pages is None or crawled < max_pages
+
+
 def _is_html(result: FetchResult) -> bool:
     if "html" in (result.content_type or "").lower():
         return True
@@ -162,12 +172,14 @@ async def audit_site(
     *,
     sample: bool = False,
     fetcher: HttpxFetcher | SampleNet | None = None,
-    max_pages: int = DEFAULT_MAX_PAGES,
+    max_pages: int | None = None,
     max_links: int | None = None,
     use_browser: bool = False,
+    use_sitemap: bool = True,
     on_progress: ProgressFn | None = None,
 ) -> Report:
-    max_pages = max(1, min(max_pages, MAX_PAGES_CAP))
+    if max_pages is not None:
+        max_pages = max(1, max_pages)
     if sample:
         url = SAMPLE_START
     else:
@@ -195,10 +207,46 @@ async def audit_site(
             on_progress=on_progress,
             delay=0.0 if sample or isinstance(fetcher, SampleNet) else CRAWL_DELAY,
             use_browser=use_browser,
+            use_sitemap=use_sitemap and not sample and not isinstance(fetcher, SampleNet),
         )
     finally:
         if own is not None:
             await own.__aexit__(None, None, None)
+
+
+async def _sitemap_seeds(
+    fetcher: HttpxFetcher | SampleNet,
+    start: str,
+    on_progress: ProgressFn | None,
+) -> list[str]:
+    """Return in-scope URLs listed in the site's sitemap, following one index level."""
+    parts = urlsplit(start)
+    pending = [f"{parts.scheme}://{parts.netloc}/sitemap.xml"]
+    found: list[str] = []
+    seen_maps: set[str] = set()
+    for _ in range(SITEMAP_INDEX_DEPTH):
+        nested: list[str] = []
+        for sitemap_url in pending:
+            if sitemap_url in seen_maps:
+                continue
+            seen_maps.add(sitemap_url)
+            result = await fetcher.get(sitemap_url)
+            if result.error or result.status_code != 200:
+                continue
+            body = result.text or ""
+            locs = [canonical(loc) for loc in SITEMAP_LOC.findall(body)]
+            if "<sitemapindex" in body.lower():
+                nested.extend(locs)
+                continue
+            for loc in locs:
+                if in_scope(start, loc) and len(found) < MAX_SITEMAP_URLS:
+                    found.append(loc)
+        if not nested:
+            break
+        pending = nested
+    if found and on_progress:
+        on_progress(f"Sitemap listed {len(found)} pages to crawl")
+    return found
 
 
 async def _audit(
@@ -206,39 +254,53 @@ async def _audit(
     *,
     fetcher: HttpxFetcher | SampleNet,
     sample: bool,
-    max_pages: int,
+    max_pages: int | None,
     max_links: int | None,
     on_progress: ProgressFn | None,
     delay: float,
     use_browser: bool = False,
+    use_sitemap: bool = True,
 ) -> Report:
     start = canonical(url)
     queue: deque[str] = deque([start])
     seen = {start}
+    if use_sitemap:
+        for loc in await _sitemap_seeds(fetcher, start, on_progress):
+            if loc not in seen:
+                seen.add(loc)
+                queue.append(loc)
     pages: list[tuple[str, str]] = []
     crawl_error: str | None = None
 
     attempts = 0
     blocked: dict[str, int] = {}
-    max_attempts = max_pages * 10
+    # A page cap also bounds retries, so a site that keeps refusing cannot
+    # spin the same budget forever. With no cap the crawl ends when the queue
+    # does: each refused URL is retried a fixed number of times, then dropped.
+    max_attempts = None if max_pages is None else max_pages * 10
     stop = False
-    while queue and len(pages) < max_pages and not stop and attempts < max_attempts:
+    while queue and _within_page_budget(len(pages), max_pages) and not stop and (
+        max_attempts is None or attempts < max_attempts
+    ):
         batch: list[str] = []
-        while queue and len(batch) < CRAWL_CONCURRENCY and len(pages) + len(batch) < max_pages:
+        while queue and len(batch) < CRAWL_CONCURRENCY and _within_page_budget(
+            len(pages) + len(batch), max_pages
+        ):
             batch.append(queue.popleft())
         if delay and pages:
             await asyncio.sleep(delay)
         if on_progress:
             held = f", {len(blocked)} blocked" if blocked else ""
+            of_limit = f" of {max_pages}" if max_pages is not None else ""
             on_progress(
-                f"Crawling page {len(pages) + 1} of {max_pages} "
+                f"Crawling page {len(pages) + 1}{of_limit} "
                 f"({len(queue)} queued{held}): {batch[0]}"
             )
         attempts += len(batch)
         results = await asyncio.gather(*[fetcher.get(page_url) for page_url in batch])
 
         for page_url, result in zip(batch, results):
-            if len(pages) >= max_pages:
+            if not _within_page_budget(len(pages), max_pages):
                 break
             final = result.final_url or page_url
             if result.error or result.status_code != 200 or not _is_html(result):

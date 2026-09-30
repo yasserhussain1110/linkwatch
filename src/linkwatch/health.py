@@ -3,7 +3,14 @@ from __future__ import annotations
 import re
 from urllib.parse import urlsplit
 
-from linkwatch.classify import asin, has_associate_tag, is_amazon_host, is_amazon_short, is_network_host
+from linkwatch.classify import (
+    asin,
+    has_associate_tag,
+    is_amazon_host,
+    is_amazon_short,
+    is_bare_host,
+    is_network_host,
+)
 from linkwatch.fetch import FetchResult
 from linkwatch.issues import IssueHit, hit
 
@@ -16,6 +23,11 @@ REGION_PHRASE = re.compile(
     r"(not available in your country|unavailable in your region|does not ship to your)",
     re.I,
 )
+# Fiverr ships every signup validation message as JSON in a <script>, including
+# "Currently, Fiverr is unavailable in your region." Matching that called a
+# healthy affiliate link region-locked, so region copy is read from the visible
+# document only. Availability still reads scripts, since JSON-LD lives there.
+SCRIPT_BLOCK = re.compile(r"<(script|style)\b[^>]*>.*?</\1\s*>", re.I | re.S)
 CLASS_OUT_OF_STOCK = re.compile(
     r"""(?:class|id)=["'][^"']*(?:out-of-stock|outofstock|availability--out)""",
     re.I,
@@ -69,9 +81,14 @@ def availability_signals(html: str) -> set[str]:
             signals.add("out_of_stock")
         elif "instock" in value or "in stock" in value:
             signals.add("in_stock")
-    if REGION_PHRASE.search(html):
+    if REGION_PHRASE.search(visible_markup(html)):
         signals.add("region")
     return signals
+
+
+def visible_markup(html: str) -> str:
+    """Drop script and style blocks so prose checks don't read embedded data."""
+    return SCRIPT_BLOCK.sub(" ", html or "")
 
 
 def is_soft_not_found(html: str) -> bool:
@@ -112,11 +129,17 @@ def diagnose(url: str, fetch: FetchResult) -> list[IssueHit]:
     issues: list[IssueHit] = []
     final = fetch.final_url or url
 
-    if asin(url) and is_amazon_host(url) and not has_associate_tag(url) and not is_amazon_short(url):
+    if (
+        is_amazon_host(url)
+        and not is_bare_host(url)
+        and not is_amazon_short(url)
+        and not has_associate_tag(url)
+        and not has_associate_tag(final)
+    ):
         issues.append(
             hit(
                 "missing_attribution",
-                "This Amazon product link has no associate tag, so a sale may not be credited to you.",
+                "This Amazon link has no associate tag, so a sale won't be credited to you.",
             )
         )
 

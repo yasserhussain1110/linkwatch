@@ -22,6 +22,37 @@ def test_detects_affiliate_shapes():
     assert classify_kind(PAGE, "https://merchant.example/product", "sponsored nofollow") == "sponsored"
 
 
+def test_detects_cart_platform_and_travel_agent_links():
+    assert classify_kind(PAGE, "https://groovepages.groovesell.com/a/5jM0qRHcm64r", "") == "network"
+    assert classify_kind(PAGE, "https://tvallc.isrefer.com/go/hpg/usa1000/", "") == "network"
+    assert classify_kind(PAGE, "https://usa1000--page1.thrivecart.com/designrr-offer/", "") == "network"
+    assert classify_kind(PAGE, "https://warriorplus.com/o2/a/g454qp/0", "") == "network"
+    # Travel suppliers credit the booking to an agent, not an affiliate id.
+    assert classify_kind(PAGE, "https://www.virginvoyages.com/book/find?agentId=130423", "") == "tagged"
+
+
+def test_shorteners_and_redirector_subdomains_are_followed():
+    assert classify_kind(PAGE, "http://bit.ly/2R330w8", "") == "shortener"
+    assert classify_kind(PAGE, "https://zdcs.link/avX4b?el=Airbnb", "") == "shortener"
+    assert classify_kind(PAGE, "https://visit.usa1000.com/2900", "") == "redirector"
+    assert classify_kind(PAGE, "https://trk.realestateexpress.com/?a=14923", "") == "redirector"
+    # A merchant's own www host is not a redirector.
+    assert classify_kind(PAGE, "https://www.example.com/product", "") is None
+
+
+def test_bare_affiliate_id_in_the_query_counts():
+    # Seen as ?aff65616 with no value at all, so parse_qs yields it as the key.
+    assert classify_kind(PAGE, "https://50kloans.com/?aff65616", "") == "tagged"
+    assert classify_kind(PAGE, "https://lowcreditfinance.com/?aff65627", "") == "tagged"
+
+
+def test_untagged_amazon_landing_page_is_still_worth_checking():
+    # No ASIN and no tag, so the old rule ignored it — but it earns nothing.
+    assert classify_kind(PAGE, "https://www.amazon.com/primebigdealdays?ref=CG_ac", "") == "amazon"
+    # A plain mention of the store front door is still not an affiliate link.
+    assert classify_kind(PAGE, "https://www.amazon.com/", "") is None
+
+
 def test_section_start_url_stays_inside_the_section():
     start = "https://www.nytimes.com/wirecutter/"
     assert in_scope(start, "https://www.nytimes.com/wirecutter/reviews/best-coffee-tables/")

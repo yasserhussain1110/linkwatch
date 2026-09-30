@@ -79,6 +79,59 @@ NETWORK_HOSTS = {
     "partnerize.com",
     "webgains.com",
     "tradedoubler.com",
+    # Cart and course platforms that issue their own affiliate links. Publishers
+    # on page builders lean on these instead of the classic networks above.
+    "groovesell.com",
+    "isrefer.com",
+    "thrivecart.com",
+    "samcart.com",
+    "kartra.com",
+    "paykickstart.com",
+    "warriorplus.com",
+    "jvzoo.com",
+    "digistore24.com",
+    "refersion.com",
+    "tapfiliate.com",
+    "postaffiliatepro.com",
+    "goaffpro.com",
+    "leaddyno.com",
+    "impact.com",
+    "track.fiverr.com",
+    "s.click.aliexpress.com",
+}
+# A publisher does not shorten a link for fun: on usa1000.net every bit.ly and
+# zdcs.link hop is a monetised outbound. Worth following even though the
+# shortener itself says nothing about which programme is behind it.
+SHORTENER_HOSTS = {
+    "bit.ly",
+    "tinyurl.com",
+    "ow.ly",
+    "buff.ly",
+    "rebrand.ly",
+    "cutt.ly",
+    "shorturl.at",
+    "t.ly",
+    "is.gd",
+    "snip.ly",
+    "zdcs.link",
+    "temu.to",
+}
+# Conventional hostnames for a redirector sitting in front of an affiliate
+# programme: visit.usa1000.com, click.linksynergy.com, trk.example.com.
+REDIRECT_SUBDOMAINS = {
+    "visit",
+    "go",
+    "click",
+    "clk",
+    "track",
+    "trk",
+    "hop",
+    "aff",
+    "partner",
+    "partners",
+    "refer",
+    "offers",
+    "deals",
 }
 AFFILIATE_QUERY_KEYS = {
     "irclickid",
@@ -90,11 +143,28 @@ AFFILIATE_QUERY_KEYS = {
     "aff_id",
     "affiliate_id",
     "affid",
+    "affiliate",
+    "affiliateid",
+    "aff",
+    "a_aid",
+    "sca_ref",
+    "tap_a",
+    "irpid",
+    # Travel suppliers credit a booking to an agent rather than an affiliate.
+    "agentid",
+    "agencyid",
 }
 ASSOCIATE_KEYS = {"tag", "ascsubtag", "linkcode", "linkid"}
 REDIRECT_SEGMENTS = {"go", "recommends", "recommend", "out", "visit", "link"}
 ASIN_RE = re.compile(r"/(?:dp|gp/product)/([A-Z0-9]{10})(?:[/?]|$)", re.I)
-KIND_RANK = {"amazon": 5, "network": 4, "tagged": 3, "redirector": 2, "sponsored": 1}
+KIND_RANK = {
+    "amazon": 6,
+    "network": 5,
+    "tagged": 4,
+    "shortener": 3,
+    "redirector": 2,
+    "sponsored": 1,
+}
 MAX_CRAWL_PER_PAGE = 1000
 MAX_AFFILIATE_PER_PAGE = 1000
 
@@ -146,8 +216,20 @@ def query_keys(url: str) -> set[str]:
     return {key.lower() for key in parse_qs(urlsplit(url).query, keep_blank_values=True)}
 
 
+def has_affiliate_query(url: str) -> bool:
+    """Match the named keys plus bare ids like ?aff65616, which carry no value."""
+    keys = query_keys(url)
+    return bool(keys & AFFILIATE_QUERY_KEYS) or any(key.startswith("aff") for key in keys)
+
+
 def has_associate_tag(url: str) -> bool:
     return bool(query_keys(url) & ASSOCIATE_KEYS)
+
+
+def is_bare_host(url: str) -> bool:
+    """True for a plain link to a merchant's front door, with no page behind it."""
+    parts = urlsplit(url)
+    return (parts.path or "/") == "/" and not parts.query
 
 
 def same_site(page_url: str, url: str) -> bool:
@@ -163,13 +245,29 @@ def is_redirect_prefix(url: str) -> bool:
     return any(segment.lower() in REDIRECT_SEGMENTS for segment in segments[:-1])
 
 
+def is_shortener(url: str) -> bool:
+    return host_matches(hostname(url), SHORTENER_HOSTS)
+
+
+def is_redirect_subdomain(url: str) -> bool:
+    labels = hostname(url).split(".")
+    return len(labels) > 2 and labels[0] in REDIRECT_SUBDOMAINS
+
+
 def classify_kind(page_url: str, url: str, rel: str) -> str | None:
     if is_network_host(url):
         return "network"
-    if is_amazon_host(url) and (asin(url) or has_associate_tag(url) or is_amazon_short(url)):
+    # Any Amazon destination deeper than the front page is traffic the publisher
+    # meant to monetise, tagged or not. An untagged landing page like
+    # /primebigdealdays earns nothing, which is the case most worth surfacing.
+    if is_amazon_host(url) and not is_bare_host(url):
         return "amazon"
-    if query_keys(url) & AFFILIATE_QUERY_KEYS:
+    if has_affiliate_query(url):
         return "tagged"
+    if is_shortener(url):
+        return "shortener"
+    if is_redirect_subdomain(url):
+        return "redirector"
     if same_site(page_url, url) and is_redirect_prefix(url):
         return "redirector"
     if "sponsored" in set(rel.lower().split()) and not same_site(page_url, url):

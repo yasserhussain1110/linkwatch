@@ -9,22 +9,27 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
 
-from linkwatch.audit import DEFAULT_MAX_PAGES, MAX_PAGES_CAP, audit_site
+from linkwatch.audit import audit_site
 from linkwatch.fetch import assess
 from linkwatch.urls import parse_http_url
 
 logger = logging.getLogger(__name__)
 app = FastAPI(title="Linkwatch")
 JOBS: dict[str, dict] = {}
+# asyncio only holds a weak reference to a running task, so an audit that nothing
+# else refers to can be garbage-collected mid-run and leave its job stuck on
+# "running" forever. Keep a strong reference until it finishes.
+RUNNING: set[asyncio.Task] = set()
 TEMPLATE = Path(__file__).parent / "templates" / "index.html"
 
 
 class AuditIn(BaseModel):
     url: str | None = None
     sample: bool = False
-    max_pages: int = Field(default=DEFAULT_MAX_PAGES, ge=1, le=MAX_PAGES_CAP)
+    max_pages: int | None = Field(default=None, ge=1)
     max_links: int | None = Field(default=None, ge=1, le=20000)
     use_browser: bool = False
+    use_sitemap: bool = True
 
 
 @app.get("/")
@@ -53,7 +58,9 @@ async def start_audit(body: AuditIn) -> dict[str, str]:
             )
     job_id = uuid4().hex
     JOBS[job_id] = {"status": "queued", "progress": "Queued", "report": None, "error": None}
-    asyncio.create_task(_run(job_id, url, body))
+    task = asyncio.create_task(_run(job_id, url, body))
+    RUNNING.add(task)
+    task.add_done_callback(RUNNING.discard)
     return {"id": job_id}
 
 
@@ -80,6 +87,7 @@ async def _run(job_id: str, url: str, body: AuditIn) -> None:
                 max_pages=body.max_pages,
                 max_links=body.max_links,
                 use_browser=body.use_browser,
+                use_sitemap=body.use_sitemap,
                 on_progress=progress,
             ),
             timeout=7200,

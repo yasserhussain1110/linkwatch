@@ -80,11 +80,6 @@
       <label for="site-url">Website</label>
       <input id="site-url" name="url" type="url" required placeholder="https://your-site.com" autocomplete="url">
       <div class="row">
-        <label for="max-pages">Pages</label>
-        <input id="max-pages" name="max_pages" type="number" min="1" max="25000" value="1000">
-        <label><input id="use-browser" type="checkbox"> Render in a browser</label>
-      </div>
-      <div class="row">
         <button type="submit">Audit site</button>
       </div>
     </form>
@@ -109,13 +104,9 @@
     form.addEventListener("submit", (event) => {
       event.preventDefault();
       const url = document.querySelector("#site-url").value.trim();
-      start({
-        url,
-        max_pages: Number(document.querySelector("#max-pages").value || 1000),
-        use_browser: document.querySelector("#use-browser").checked,
-      });
+      start({ url });
     });
-    sampleButton.addEventListener("click", () => start({ sample: true, max_pages: 10 }));
+    sampleButton.addEventListener("click", () => start({ sample: true }));
 
     async function start(body) {
       if (busy) return;
