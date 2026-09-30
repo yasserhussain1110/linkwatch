@@ -184,6 +184,15 @@ def diagnose(url: str, fetch: FetchResult) -> list[IssueHit]:
     signals = availability_signals(fetch.text or "")
     if "discontinued" in signals:
         issues.append(hit("discontinued", "The product page says this item is discontinued."))
+    elif "out_of_stock" in signals and "in_stock" in signals:
+        # Variant listings carry one offer per size or colour; a single sold-out
+        # variant says nothing about the product the article recommends.
+        issues.append(
+            hit(
+                "ambiguous_stock",
+                "The page lists both in-stock and sold-out offers, so availability couldn't be confirmed.",
+            )
+        )
     elif "out_of_stock" in signals:
         issues.append(hit("out_of_stock", "The product page loads, but the item is out of stock."))
     elif "region" in signals and "in_stock" not in signals:

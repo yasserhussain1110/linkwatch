@@ -13,11 +13,22 @@ from zill.issues import SEVERITY, IssueHit
 from zill.sample import SAMPLE_START, SampleNet
 from zill.urls import canonical, in_scope, parse_http_url
 
-MAX_PAGES_CAP = 500
+DEFAULT_MAX_PAGES = 1000
+MAX_PAGES_CAP = 25000
 CHECK_CONCURRENCY = 8
+# Measured on nytimes.com/wirecutter: 5 parallel requests were blocked 96% of
+# the time and starved the frontier, while one request per second was blocked
+# 88% and kept finding pages. Politeness wins on protected sites.
+CRAWL_CONCURRENCY = 1
+CRAWL_DELAY = 1.0
+PAGE_RETRIES = 2
 CAVEAT = (
     "Zill counts links that can't earn. It does not estimate dollars. "
     "Out-of-stock and discontinued flags come from page markup, not a full browser."
+)
+CAVEAT_RENDERED = (
+    "Zill counts links that can't earn. It does not estimate dollars. "
+    "Pages were rendered in a real browser, so availability reflects what a shopper sees."
 )
 ProgressFn = Callable[[str], None]
 
@@ -54,8 +65,10 @@ class Finding:
 class Report:
     site: str
     sample: bool
+    rendered: bool
     crawled_at: str
     pages_crawled: int
+    pages_blocked: int
     pages: list[str]
     site_title: str
     affiliate_links_found: int
@@ -73,8 +86,10 @@ class Report:
         return {
             "site": self.site,
             "sample": self.sample,
+            "rendered": self.rendered,
             "crawled_at": self.crawled_at,
             "pages_crawled": self.pages_crawled,
+            "pages_blocked": self.pages_blocked,
             "pages": self.pages,
             "site_title": self.site_title,
             "affiliate_links_found": self.affiliate_links_found,
@@ -90,7 +105,7 @@ class Report:
         }
 
 
-UNVERIFIED_CODES = {"blocked", "timeout"}
+UNVERIFIED_CODES = {"blocked", "timeout", "ambiguous_stock"}
 
 
 def bucket_for(codes: list[str]) -> str:
@@ -130,6 +145,12 @@ def _bot_wall(text: str) -> bool:
     return "please enable js" in lowered or "enable javascript" in lowered
 
 
+def _worth_retrying(result: FetchResult) -> bool:
+    if result.error == "timeout":
+        return True
+    return result.status_code in {403, 429, 503} or _bot_wall(result.text)
+
+
 def _is_html(result: FetchResult) -> bool:
     if "html" in (result.content_type or "").lower():
         return True
@@ -141,9 +162,10 @@ async def audit_site(
     *,
     sample: bool = False,
     fetcher: HttpxFetcher | SampleNet | None = None,
-    max_pages: int = 25,
+    max_pages: int = DEFAULT_MAX_PAGES,
     max_links: int | None = None,
     respect_robots: bool = True,
+    use_browser: bool = False,
     on_progress: ProgressFn | None = None,
 ) -> Report:
     max_pages = max(1, min(max_pages, MAX_PAGES_CAP))
@@ -152,10 +174,15 @@ async def audit_site(
     else:
         url = parse_http_url(url)
 
-    own: HttpxFetcher | None = None
+    own = None
     if fetcher is None:
         if sample:
             fetcher = SampleNet()
+        elif use_browser:
+            from zill.browser import BrowserFetcher
+
+            own = BrowserFetcher()
+            fetcher = await own.__aenter__()
         else:
             own = HttpxFetcher()
             fetcher = await own.__aenter__()
@@ -168,7 +195,8 @@ async def audit_site(
             max_links=max_links,
             respect_robots=False,
             on_progress=on_progress,
-            delay=0.0 if sample or isinstance(fetcher, SampleNet) else 0.15,
+            delay=0.0 if sample or isinstance(fetcher, SampleNet) else CRAWL_DELAY,
+            use_browser=use_browser,
         )
     finally:
         if own is not None:
@@ -185,6 +213,7 @@ async def _audit(
     respect_robots: bool,
     on_progress: ProgressFn | None,
     delay: float,
+    use_browser: bool = False,
 ) -> Report:
     start = canonical(url)
     queue: deque[str] = deque([start])
@@ -192,29 +221,55 @@ async def _audit(
     pages: list[tuple[str, str]] = []
     crawl_error: str | None = None
 
-    while queue and len(pages) < max_pages:
-        page_url = queue.popleft()
-        if respect_robots and not await fetcher.allowed(page_url):
+    attempts = 0
+    blocked: dict[str, int] = {}
+    max_attempts = max_pages * 10
+    stop = False
+    while queue and len(pages) < max_pages and not stop and attempts < max_attempts:
+        batch: list[str] = []
+        while queue and len(batch) < CRAWL_CONCURRENCY and len(pages) + len(batch) < max_pages:
+            candidate = queue.popleft()
+            if respect_robots and not await fetcher.allowed(candidate):
+                continue
+            batch.append(candidate)
+        if not batch:
             continue
         if delay and pages:
             await asyncio.sleep(delay)
         if on_progress:
-            on_progress(f"Crawling {page_url}")
-        result = await fetcher.get(page_url)
-        final = result.final_url or page_url
-        if result.error or result.status_code != 200 or not _is_html(result):
-            if not pages:
-                crawl_error = _failure_message(result)
+            held = f", {len(blocked)} blocked" if blocked else ""
+            on_progress(
+                f"Crawling page {len(pages) + 1} of {max_pages} "
+                f"({len(queue)} queued{held}): {batch[0]}"
+            )
+        attempts += len(batch)
+        results = await asyncio.gather(*[fetcher.get(page_url) for page_url in batch])
+
+        for page_url, result in zip(batch, results):
+            if len(pages) >= max_pages:
                 break
-            continue
-        if not in_scope(start, final):
-            continue
-        pages.append((final, result.text))
-        extracted = extract_page_links(final, result.text, start)
-        for nxt in extracted.crawl:
-            if nxt not in seen:
-                seen.add(nxt)
-                queue.append(nxt)
+            final = result.final_url or page_url
+            if result.error or result.status_code != 200 or not _is_html(result):
+                if not pages:
+                    crawl_error = _failure_message(result)
+                    stop = True
+                    break
+                # Bot protection is intermittent, so a refusal is worth
+                # retrying later rather than dropping the page for good.
+                if _worth_retrying(result):
+                    tries = blocked.get(page_url, 0) + 1
+                    blocked[page_url] = tries
+                    if tries <= PAGE_RETRIES:
+                        queue.append(page_url)
+                continue
+            if not in_scope(start, final):
+                continue
+            pages.append((final, result.text))
+            extracted = extract_page_links(final, result.text, start)
+            for nxt in extracted.crawl:
+                if nxt not in seen:
+                    seen.add(nxt)
+                    queue.append(nxt)
 
     found = []
     for page_url, html in pages:
@@ -244,8 +299,10 @@ async def _audit(
     return Report(
         site=start,
         sample=sample,
+        rendered=use_browser,
         crawled_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
         pages_crawled=len(pages),
+        pages_blocked=sum(1 for tries in blocked.values() if tries > PAGE_RETRIES),
         pages=[page_url for page_url, _html in pages],
         site_title=title,
         affiliate_links_found=len(links),
@@ -257,6 +314,7 @@ async def _audit(
         issue_counts=issue_counts,
         findings=findings,
         crawl_error=crawl_error,
+        caveat=CAVEAT_RENDERED if use_browser else CAVEAT,
     )
 
 

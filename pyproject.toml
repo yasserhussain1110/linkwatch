@@ -12,6 +12,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
+browser = ["playwright>=1.40"]
 
 [project.scripts]
 zill = "zill.cli:main"

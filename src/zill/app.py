@@ -9,7 +9,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
 
-from zill.audit import audit_site
+from zill.audit import DEFAULT_MAX_PAGES, MAX_PAGES_CAP, audit_site
 from zill.fetch import assess
 from zill.urls import parse_http_url
 
@@ -22,9 +22,10 @@ TEMPLATE = Path(__file__).parent / "templates" / "index.html"
 class AuditIn(BaseModel):
     url: str | None = None
     sample: bool = False
-    max_pages: int = Field(default=25, ge=1, le=500)
+    max_pages: int = Field(default=DEFAULT_MAX_PAGES, ge=1, le=MAX_PAGES_CAP)
     max_links: int | None = Field(default=None, ge=1, le=20000)
     respect_robots: bool = True
+    use_browser: bool = False
 
 
 @app.get("/")
@@ -80,6 +81,7 @@ async def _run(job_id: str, url: str, body: AuditIn) -> None:
                 max_pages=body.max_pages,
                 max_links=body.max_links,
                 respect_robots=body.respect_robots,
+                use_browser=body.use_browser,
                 on_progress=progress,
             ),
             timeout=7200,

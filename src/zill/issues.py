@@ -46,6 +46,11 @@ ISSUES: dict[str, IssueInfo] = {
         "Out of stock",
         "Point the review at an in-stock alternative, or check the offer again.",
     ),
+    "ambiguous_stock": IssueInfo(
+        "ambiguous_stock",
+        "Needs verification",
+        "The page offers several variants. Open it to see whether the one you recommend is buyable.",
+    ),
     "region_unavailable": IssueInfo(
         "region_unavailable",
         "Wrong region",

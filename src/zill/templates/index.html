@@ -81,8 +81,9 @@
       <input id="site-url" name="url" type="url" required placeholder="https://your-site.com" autocomplete="url">
       <div class="row">
         <label for="max-pages">Pages</label>
-        <input id="max-pages" name="max_pages" type="number" min="1" max="500" value="25">
+        <input id="max-pages" name="max_pages" type="number" min="1" max="25000" value="1000">
         <label><input id="respect-robots" type="checkbox" checked> Respect robots.txt</label>
+        <label><input id="use-browser" type="checkbox"> Render in a browser</label>
       </div>
       <div class="row">
         <button type="submit">Audit site</button>
@@ -111,8 +112,9 @@
       const url = document.querySelector("#site-url").value.trim();
       start({
         url,
-        max_pages: Number(document.querySelector("#max-pages").value || 25),
+        max_pages: Number(document.querySelector("#max-pages").value || 1000),
         respect_robots: document.querySelector("#respect-robots").checked,
+        use_browser: document.querySelector("#use-browser").checked,
       });
     });
     sampleButton.addEventListener("click", () => start({ sample: true, max_pages: 10 }));
@@ -191,7 +193,9 @@
       const caveat = el("p", report.caveat, "caveat");
       const stats = el(
         "p",
-        "Crawled " + report.pages_crawled + " pages. Found " + report.affiliate_links_found + " affiliate links. " + report.healthy_count + " still look healthy.",
+        "Crawled " + report.pages_crawled + " pages"
+          + (report.pages_blocked ? " (" + report.pages_blocked + " more refused the crawler)" : "")
+          + ". Found " + report.affiliate_links_found + " affiliate links. " + report.healthy_count + " still look healthy.",
         "meta"
       );
       reportEl.append(kicker, count, line, caveat, stats);

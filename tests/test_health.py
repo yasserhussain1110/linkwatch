@@ -17,6 +17,12 @@ def test_schema_out_of_stock_and_ignores_prose():
     assert codes("https://shop.example/mug", status_code=200, text=prose) == set()
 
 
+def test_mixed_variant_offers_are_not_called_out_of_stock():
+    both = ('<script type="application/ld+json">{"offers":[{"availability":"https://schema.org/OutOfStock"},'
+            '{"availability":"https://schema.org/InStock"}]}</script>')
+    assert codes("https://www.dyson.com/lighting/lightcycle-morph", status_code=200, text=both) == {"ambiguous_stock"}
+
+
 def test_class_marks_out_of_stock():
     html = '<div class="product out-of-stock">Waiting</div>'
     assert "out_of_stock" in codes("https://shop.example/mug", status_code=200, text=html)

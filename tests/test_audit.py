@@ -86,6 +86,31 @@ def test_timeouts_are_retried_before_being_reported():
     assert result.status_code == 200
 
 
+def test_pages_refused_once_are_retried_not_dropped():
+    class Flaky(SampleNet):
+        """Refuses every page once, the way intermittent bot protection does."""
+
+        def __init__(self):
+            super().__init__()
+            self.refused: set[str] = set()
+
+        async def get(self, url: str) -> FetchResult:
+            if url.startswith("https://publisher.example/") and url not in self.refused:
+                self.refused.add(url)
+                if url != canonical(SAMPLE_START):
+                    return FetchResult(
+                        requested_url=url, final_url=url, status_code=403,
+                        text="<html>denied</html>", content_type="text/html",
+                        redirect_chain=[url],
+                    )
+            return await super().get(url)
+
+    report = asyncio.run(audit_site(SAMPLE_START, fetcher=Flaky(), max_pages=10))
+    assert report.pages_crawled == 4
+    assert report.pages_blocked == 0
+    assert report.affiliate_links_found == 11
+
+
 def test_bot_wall_explains_why_the_crawl_stopped():
     class Blocked:
         async def allowed(self, url: str) -> bool:

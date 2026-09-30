@@ -67,7 +67,16 @@ def in_scope(start_url: str, url: str) -> bool:
     host = hostname(url).removeprefix("www.")
     if not base or not host:
         return False
-    return host == base or host.endswith("." + base)
+    if not (host == base or host.endswith("." + base)):
+        return False
+    # A section URL means the section, not the whole domain: starting at
+    # /wirecutter/ must not spend the crawl budget on help pages and account
+    # settings elsewhere on the host.
+    prefix = (urlsplit(start_url).path or "/").rstrip("/")
+    if not prefix:
+        return True
+    path = urlsplit(url).path or "/"
+    return path == prefix or path.startswith(prefix + "/")
 
 
 def crawlable_path(url: str) -> bool:
