@@ -6,7 +6,7 @@ from urllib.parse import parse_qs, urljoin, urlsplit
 
 from bs4 import BeautifulSoup
 
-from zill.urls import canonical, crawlable_path, hostname, in_scope
+from linkwatch.urls import canonical, crawlable_path, hostname, in_scope
 
 AMAZON_HOSTS = {
     "amazon.com",

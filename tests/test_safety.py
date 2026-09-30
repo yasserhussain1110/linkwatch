@@ -1,6 +1,6 @@
 import socket
 
-from zill.fetch import assess
+from linkwatch.fetch import assess
 
 
 def _resolver(ip: str):

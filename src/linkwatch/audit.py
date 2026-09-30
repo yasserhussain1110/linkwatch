@@ -6,12 +6,12 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
-from zill.classify import AffiliateLink, merge_links, extract_page_links
-from zill.fetch import FetchResult, HttpxFetcher
-from zill.health import diagnose, page_title
-from zill.issues import SEVERITY, IssueHit
-from zill.sample import SAMPLE_START, SampleNet
-from zill.urls import canonical, in_scope, parse_http_url
+from linkwatch.classify import AffiliateLink, merge_links, extract_page_links
+from linkwatch.fetch import FetchResult, HttpxFetcher
+from linkwatch.health import diagnose, page_title
+from linkwatch.issues import SEVERITY, IssueHit
+from linkwatch.sample import SAMPLE_START, SampleNet
+from linkwatch.urls import canonical, in_scope, parse_http_url
 
 DEFAULT_MAX_PAGES = 1000
 MAX_PAGES_CAP = 25000
@@ -23,11 +23,11 @@ CRAWL_CONCURRENCY = 1
 CRAWL_DELAY = 1.0
 PAGE_RETRIES = 2
 CAVEAT = (
-    "Zill counts links that can't earn. It does not estimate dollars. "
+    "Linkwatch counts links that can't earn. It does not estimate dollars. "
     "Out-of-stock and discontinued flags come from page markup, not a full browser."
 )
 CAVEAT_RENDERED = (
-    "Zill counts links that can't earn. It does not estimate dollars. "
+    "Linkwatch counts links that can't earn. It does not estimate dollars. "
     "Pages were rendered in a real browser, so availability reflects what a shopper sees."
 )
 ProgressFn = Callable[[str], None]
@@ -128,12 +128,12 @@ def _failure_message(result: FetchResult) -> str:
     if result.error == "timeout":
         return "The site didn't respond in time."
     if result.error == "denied":
-        return "That URL isn't on the public web, so Zill won't crawl it."
+        return "That URL isn't on the public web, so Linkwatch won't crawl it."
     if result.status_code in {401, 403, 429} or _bot_wall(result.text):
         code = f" (HTTP {result.status_code})" if result.status_code else ""
         return (
             f"The site blocked the automated crawl{code}. "
-            "Zill doesn't run a browser, so it can't get past a JavaScript check."
+            "Linkwatch doesn't run a browser, so it can't get past a JavaScript check."
         )
     if result.status_code:
         return f"The site returned HTTP {result.status_code}."
@@ -164,7 +164,6 @@ async def audit_site(
     fetcher: HttpxFetcher | SampleNet | None = None,
     max_pages: int = DEFAULT_MAX_PAGES,
     max_links: int | None = None,
-    respect_robots: bool = True,
     use_browser: bool = False,
     on_progress: ProgressFn | None = None,
 ) -> Report:
@@ -179,7 +178,7 @@ async def audit_site(
         if sample:
             fetcher = SampleNet()
         elif use_browser:
-            from zill.browser import BrowserFetcher
+            from linkwatch.browser import BrowserFetcher
 
             own = BrowserFetcher()
             fetcher = await own.__aenter__()
@@ -193,7 +192,6 @@ async def audit_site(
             sample=sample,
             max_pages=max_pages,
             max_links=max_links,
-            respect_robots=False,
             on_progress=on_progress,
             delay=0.0 if sample or isinstance(fetcher, SampleNet) else CRAWL_DELAY,
             use_browser=use_browser,
@@ -210,7 +208,6 @@ async def _audit(
     sample: bool,
     max_pages: int,
     max_links: int | None,
-    respect_robots: bool,
     on_progress: ProgressFn | None,
     delay: float,
     use_browser: bool = False,
@@ -228,12 +225,7 @@ async def _audit(
     while queue and len(pages) < max_pages and not stop and attempts < max_attempts:
         batch: list[str] = []
         while queue and len(batch) < CRAWL_CONCURRENCY and len(pages) + len(batch) < max_pages:
-            candidate = queue.popleft()
-            if respect_robots and not await fetcher.allowed(candidate):
-                continue
-            batch.append(candidate)
-        if not batch:
-            continue
+            batch.append(queue.popleft())
         if delay and pages:
             await asyncio.sleep(delay)
         if on_progress:

@@ -1,5 +1,5 @@
-from zill.classify import classify_kind
-from zill.urls import canonical, in_scope
+from linkwatch.classify import classify_kind, extract_page_links
+from linkwatch.urls import canonical, in_scope
 
 
 PAGE = "https://publisher.example/reviews/desk"
@@ -37,3 +37,12 @@ def test_canonical_strips_fragment_but_keeps_trailing_slash():
     assert canonical("https://publisher.example") == "https://publisher.example/"
     # Impact's tracker 404s without the trailing slash.
     assert canonical("https://www.ojrq.net/p/?return=x") == "https://www.ojrq.net/p/?return=x"
+
+
+def test_a_typo_doubled_scheme_does_not_end_the_crawl():
+    # Seen in a real site footer: the second "https:" parses as a port.
+    assert canonical("https://https:usa1000.com/contact-us") == "https://https/contact-us"
+    page = "https://usa1000.net/footer-1"
+    html = '<a href="https://https:usa1000.com/contact-us">Contact Us</a><a href="/next">Next</a>'
+    links = extract_page_links(page, html, "https://usa1000.net/")
+    assert links.crawl == ["https://usa1000.net/next"]

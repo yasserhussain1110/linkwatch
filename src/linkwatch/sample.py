@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from zill.fetch import FetchResult
-from zill.urls import canonical
+from linkwatch.fetch import FetchResult
+from linkwatch.urls import canonical
 
 SAMPLE_START = "https://publisher.example/"
 URL_HEALTHY_NET = "https://shareasale.com/r.cfm?b=1&u=9&m=2&urllink=lamp"
@@ -131,9 +131,6 @@ class SampleNet:
 
     def __init__(self) -> None:
         self.requested: list[str] = []
-
-    async def allowed(self, url: str) -> bool:
-        return True
 
     async def get(self, url: str) -> FetchResult:
         self.requested.append(url)

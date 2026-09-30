@@ -3,10 +3,10 @@ import asyncio
 import httpx
 from fastapi.testclient import TestClient
 
-from zill.app import app
-from zill.audit import audit_site
-from zill.fetch import FetchResult
-from zill.sample import (
+from linkwatch.app import app
+from linkwatch.audit import audit_site
+from linkwatch.fetch import FetchResult
+from linkwatch.sample import (
     SAMPLE_START,
     URL_BROKEN,
     URL_CJ,
@@ -21,7 +21,7 @@ from zill.sample import (
     URL_TAG_STRIP,
     SampleNet,
 )
-from zill.urls import canonical
+from linkwatch.urls import canonical
 
 
 EXPECTED = {
@@ -41,7 +41,7 @@ EXPECTED = {
 
 def test_sample_audit_finds_revenue_leaks():
     net = SampleNet()
-    report = asyncio.run(audit_site(SAMPLE_START, fetcher=net, respect_robots=False))
+    report = asyncio.run(audit_site(SAMPLE_START, fetcher=net))
     assert report.crawl_error is None
     assert report.problem_count == 9
     assert report.healthy_count == 2
@@ -56,7 +56,7 @@ def test_sample_audit_finds_revenue_leaks():
 
 
 def test_timeout_is_unverified_not_a_problem():
-    from zill.audit import bucket_for
+    from linkwatch.audit import bucket_for
 
     assert bucket_for(["timeout"]) == "unverified"
     assert bucket_for(["blocked"]) == "unverified"
@@ -65,7 +65,7 @@ def test_timeout_is_unverified_not_a_problem():
 
 
 def test_timeouts_are_retried_before_being_reported():
-    from zill.fetch import HttpxFetcher
+    from linkwatch.fetch import HttpxFetcher
 
     class Flaky:
         def __init__(self):
@@ -113,9 +113,6 @@ def test_pages_refused_once_are_retried_not_dropped():
 
 def test_bot_wall_explains_why_the_crawl_stopped():
     class Blocked:
-        async def allowed(self, url: str) -> bool:
-            return True
-
         async def get(self, url: str) -> FetchResult:
             return FetchResult(
                 requested_url=url,

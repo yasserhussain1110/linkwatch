@@ -5,11 +5,11 @@ import asyncio
 import json
 import sys
 
-from zill.audit import DEFAULT_MAX_PAGES, AuditError, Report, audit_site
+from linkwatch.audit import DEFAULT_MAX_PAGES, AuditError, Report, audit_site
 
 
 def print_report(report: Report, *, show_healthy: bool) -> None:
-    print("Zill — affiliate revenue at risk")
+    print("Linkwatch — affiliate revenue at risk")
     print(f"Site: {report.site}")
     if report.site_title:
         print(f"Title: {report.site_title}")
@@ -50,7 +50,6 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--sample", action="store_true", help="Audit the built-in sample publisher")
     parser.add_argument("--max-pages", type=int, default=DEFAULT_MAX_PAGES)
     parser.add_argument("--max-links", type=int, default=None, help="Check only the first N links (default: all)")
-    parser.add_argument("--ignore-robots", action="store_true")
     parser.add_argument(
         "--browser",
         action="store_true",
@@ -68,7 +67,6 @@ def main(argv: list[str] | None = None) -> None:
             sample=args.sample,
             max_pages=args.max_pages,
             max_links=args.max_links,
-            respect_robots=not args.ignore_robots,
             use_browser=args.browser,
             on_progress=lambda message: print(message, file=sys.stderr),
         )

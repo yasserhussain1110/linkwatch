@@ -9,12 +9,12 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
 
-from zill.audit import DEFAULT_MAX_PAGES, MAX_PAGES_CAP, audit_site
-from zill.fetch import assess
-from zill.urls import parse_http_url
+from linkwatch.audit import DEFAULT_MAX_PAGES, MAX_PAGES_CAP, audit_site
+from linkwatch.fetch import assess
+from linkwatch.urls import parse_http_url
 
 logger = logging.getLogger(__name__)
-app = FastAPI(title="Zill")
+app = FastAPI(title="Linkwatch")
 JOBS: dict[str, dict] = {}
 TEMPLATE = Path(__file__).parent / "templates" / "index.html"
 
@@ -24,7 +24,6 @@ class AuditIn(BaseModel):
     sample: bool = False
     max_pages: int = Field(default=DEFAULT_MAX_PAGES, ge=1, le=MAX_PAGES_CAP)
     max_links: int | None = Field(default=None, ge=1, le=20000)
-    respect_robots: bool = True
     use_browser: bool = False
 
 
@@ -50,7 +49,7 @@ async def start_audit(body: AuditIn) -> dict[str, str]:
         if state == "denied":
             raise HTTPException(
                 status_code=400,
-                detail="That URL isn't on the public web, so Zill won't crawl it.",
+                detail="That URL isn't on the public web, so Linkwatch won't crawl it.",
             )
     job_id = uuid4().hex
     JOBS[job_id] = {"status": "queued", "progress": "Queued", "report": None, "error": None}
@@ -80,7 +79,6 @@ async def _run(job_id: str, url: str, body: AuditIn) -> None:
                 sample=body.sample,
                 max_pages=body.max_pages,
                 max_links=body.max_links,
-                respect_robots=body.respect_robots,
                 use_browser=body.use_browser,
                 on_progress=progress,
             ),
@@ -107,4 +105,4 @@ async def _run(job_id: str, url: str, body: AuditIn) -> None:
 def main() -> None:
     import uvicorn
 
-    uvicorn.run("zill.app:app", host="127.0.0.1", port=8000)
+    uvicorn.run("linkwatch.app:app", host="127.0.0.1", port=8000)

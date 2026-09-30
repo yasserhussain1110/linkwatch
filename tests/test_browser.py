@@ -1,4 +1,4 @@
-from zill.browser import _chain, _plain_text
+from linkwatch.browser import _chain
 
 
 class FakeRequest:
@@ -21,8 +21,3 @@ def test_redirect_chain_is_read_in_visiting_order():
         "https://wclink.co/deals/1",
         "https://www.amazon.com/dp/B0TEST1234",
     ]
-
-
-def test_robots_text_is_recovered_from_the_rendered_wrapper():
-    rendered = '<html><head></head><body><pre style="word-wrap: break-word;">User-agent: *\nDisallow: /out/</pre></body></html>'
-    assert _plain_text(rendered).splitlines() == ["User-agent: *", "Disallow: /out/"]

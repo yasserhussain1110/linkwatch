@@ -3,17 +3,15 @@ from __future__ import annotations
 import asyncio
 import ipaddress
 import socket
-import urllib.robotparser
 from dataclasses import dataclass, field
 from typing import Callable
 from urllib.parse import urljoin, urlsplit
 
 import httpx
 
-from zill.urls import canonical, hostname
+from linkwatch.urls import canonical, hostname
 
-UA = "ZillAffiliateAudit/0.1 (+public affiliate link check)"
-UA_TOKEN = "ZillAffiliateAudit"
+UA = "LinkwatchAffiliateAudit/0.1 (+public affiliate link check)"
 Resolver = Callable[..., list]
 
 BLOCKED_HOSTS = {"localhost", "metadata.google.internal"}
@@ -87,7 +85,6 @@ class HttpxFetcher:
         self._client = client
         self._owns_client = client is None
         self._host_safety: dict[str, tuple[str, str | None]] = {}
-        self._robots: dict[str, urllib.robotparser.RobotFileParser] = {}
 
     async def __aenter__(self) -> HttpxFetcher:
         if self._client is None:
@@ -171,20 +168,3 @@ class HttpxFetcher:
             await asyncio.sleep(pause)
             result = await self._request(target)
         return result
-
-    async def allowed(self, url: str) -> bool:
-        parts = urlsplit(canonical(url))
-        origin = f"{parts.scheme}://{parts.netloc}"
-        if origin not in self._robots:
-            robots_url = f"{origin}/robots.txt"
-            result = await self._request(robots_url)
-            parser = urllib.robotparser.RobotFileParser()
-            if result.error is None and result.status_code == 200:
-                parser.parse((result.text or "").splitlines())
-            else:
-                parser.parse([])
-            self._robots[origin] = parser
-        try:
-            return bool(self._robots[origin].can_fetch(UA_TOKEN, url))
-        except Exception:
-            return True

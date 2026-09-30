@@ -41,7 +41,13 @@ def canonical(url: str) -> str:
         netloc = f"[{host}]"
     else:
         netloc = host
-    port = parts.port
+    # Hand-written hrefs carry typos like "https://https:example.com/x", where
+    # urlsplit reads the second scheme as a port and refuses to parse it. Drop
+    # the unusable port instead of letting one bad link end the crawl.
+    try:
+        port = parts.port
+    except ValueError:
+        port = None
     if port and not ((scheme == "https" and port == 443) or (scheme == "http" and port == 80)):
         netloc = f"{netloc}:{port}"
     # A trailing slash is load-bearing on some affiliate endpoints: Impact's

@@ -1,4 +1,4 @@
-from zill.cli import main
+from linkwatch.cli import main
 
 if __name__ == "__main__":
     main()

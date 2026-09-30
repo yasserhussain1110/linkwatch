@@ -2,12 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import os
-import urllib.robotparser
 from pathlib import Path
-from urllib.parse import urlsplit
 
-from zill.fetch import UA_TOKEN, FetchResult, assess
-from zill.urls import canonical, hostname
+from linkwatch.fetch import FetchResult, assess
+from linkwatch.urls import canonical, hostname
 
 BUNDLED_BROWSERS = Path(__file__).resolve().parents[2] / ".playwright"
 BROWSER_UA = (
@@ -37,7 +35,6 @@ class BrowserFetcher:
         self._context = None
         self._semaphore = asyncio.Semaphore(self._concurrency)
         self._host_safety: dict[str, tuple[str, str | None]] = {}
-        self._robots: dict[str, urllib.robotparser.RobotFileParser] = {}
 
     async def __aenter__(self) -> BrowserFetcher:
         if BUNDLED_BROWSERS.is_dir():
@@ -139,22 +136,6 @@ class BrowserFetcher:
             finally:
                 await page.close()
 
-    async def allowed(self, url: str) -> bool:
-        parts = urlsplit(canonical(url))
-        origin = f"{parts.scheme}://{parts.netloc}"
-        if origin not in self._robots:
-            result = await self.get(f"{origin}/robots.txt")
-            parser = urllib.robotparser.RobotFileParser()
-            if result.error is None and result.status_code == 200:
-                parser.parse(_plain_text(result.text).splitlines())
-            else:
-                parser.parse([])
-            self._robots[origin] = parser
-        try:
-            return bool(self._robots[origin].can_fetch(UA_TOKEN, url))
-        except Exception:
-            return True
-
 
 def _chain(response, target: str) -> list[str]:
     hops: list[str] = []
@@ -164,15 +145,3 @@ def _chain(response, target: str) -> list[str]:
         request = request.redirected_from
     hops.reverse()
     return hops or [target]
-
-
-def _plain_text(html: str) -> str:
-    """Chromium wraps text/plain in a <pre> block; robots.txt needs the raw lines."""
-    import re
-
-    match = re.search(r"<pre[^>]*>(.*?)</pre>", html or "", re.S | re.I)
-    body = match.group(1) if match else (html or "")
-    body = re.sub(r"<[^>]+>", "", body)
-    return (
-        body.replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&").replace("&quot;", '"')
-    )

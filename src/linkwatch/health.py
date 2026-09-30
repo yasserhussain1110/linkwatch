@@ -3,9 +3,9 @@ from __future__ import annotations
 import re
 from urllib.parse import urlsplit
 
-from zill.classify import asin, has_associate_tag, is_amazon_host, is_amazon_short, is_network_host
-from zill.fetch import FetchResult
-from zill.issues import IssueHit, hit
+from linkwatch.classify import asin, has_associate_tag, is_amazon_host, is_amazon_short, is_network_host
+from linkwatch.fetch import FetchResult
+from linkwatch.issues import IssueHit, hit
 
 SOFT_NOT_FOUND = re.compile(
     r"(page not found|404 not found|product not found|we couldn't find that page|not a functioning page)",
@@ -130,7 +130,7 @@ def diagnose(url: str, fetch: FetchResult) -> list[IssueHit]:
         issues.append(hit("timeout", "The destination didn't respond in time."))
         return _dedupe(issues)
     if fetch.error == "denied":
-        issues.append(hit("blocked", "Zill skipped this URL because it doesn't point at the public web."))
+        issues.append(hit("blocked", "Linkwatch skipped this URL because it doesn't point at the public web."))
         return _dedupe(issues)
     if fetch.error == "too_many_redirects":
         issues.append(hit("network_failure", "The link redirected too many times and never settled on a product."))
@@ -237,6 +237,6 @@ def diagnose(url: str, fetch: FetchResult) -> list[IssueHit]:
 
 
 def hostname_or(url: str) -> str:
-    from zill.urls import hostname
+    from linkwatch.urls import hostname
 
     return hostname(url) or "unknown host"

@@ -1,5 +1,5 @@
-from zill.fetch import FetchResult
-from zill.health import diagnose
+from linkwatch.fetch import FetchResult
+from linkwatch.health import diagnose
 
 
 def codes(url: str, **kwargs) -> set[str]:
